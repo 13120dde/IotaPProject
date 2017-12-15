@@ -16,14 +16,26 @@ import java.io.OutputStream;
 import java.util.Set;
 import java.util.UUID;
 
+/**TODO: Add Weka lib
+ * setup the Weka obj with train and test data
+ * when getting wearable inputdata classify it trgough weka -> produce label
+ *      send label to cloudmqqt
+ *
+ */
+
 public class MainActivity extends AppCompatActivity {
 
     private static final String TAG="BT_connect";
+    private static final String SENSITIVITY ="s100000";
+
     private BluetoothAdapter mBluetoothAdapter;
     private Set<BluetoothDevice> pairedDevices;
     private BluetoothDevice mDevice;
     private ConnectThread mConnectThread;
     private ConnectedThread mConnectedThread;
+
+    //Stores all sensor-data
+    private LiveGestureData dataStore = new LiveGestureData();
 
     private Handler mHandler = new Handler() {
         @Override
@@ -47,8 +59,10 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
           mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+
         if(mBluetoothAdapter != null){
 
+            //prompt user to enable bt, unpair other devices in android os - otherwise need to handle identification
             if(!mBluetoothAdapter.isEnabled()){
                 Intent enableBtIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
                 startActivityForResult(enableBtIntent,1);
@@ -61,12 +75,16 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        //if user enabled bt
         if(resultCode == RESULT_OK){
             startConnection();
         }
 
     }
 
+    /**Starts the connection with paired bluetooth device
+     *
+     */
     private void startConnection() {
         Log.d(TAG,"in startConnection");
         pairedDevices = mBluetoothAdapter.getBondedDevices();
@@ -155,6 +173,13 @@ public class MainActivity extends AppCompatActivity {
             }
             mmInStream = tmpIn;
             mmOutStream = tmpOut;
+            try {
+                //Adjust sensitivity of gyro.
+                mmOutStream.write(SENSITIVITY.getBytes());
+                mmOutStream.flush();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
         }
 
         public void run() {
@@ -165,8 +190,10 @@ public class MainActivity extends AppCompatActivity {
                 try {
                     bytes += mmInStream.read(buffer, bytes, buffer.length - bytes);
                     for (int i = begin; i < bytes; i++) {
-                        Log.d("BT_BUFFER", String.valueOf(buffer[i]));
-                        if (buffer[i] == "#".getBytes()[0]) {
+                        String inputData = new String(buffer);
+                        Log.d("BT_BUFFER", "recieved  inputData, bynteNbr: "+i);
+                        handleInputData(inputData);
+                       /* if (buffer[i] == "#".getBytes()[0]) {
                             Log.d("BT_BUFFER", "######");
 
                             mHandler.obtainMessage(1, begin, i, buffer).sendToTarget();
@@ -175,12 +202,32 @@ public class MainActivity extends AppCompatActivity {
                                 bytes = 0;
                                 begin = 0;
                             }
-                        }
+                        }*/
                     }
                 } catch (IOException e) {
-                    Log.d(TAG,"readbuffer:"+e.getMessage());
+                    Log.d(TAG,"readbuffer: "+e.getMessage());
                     break;
                 }
+            }
+        }
+
+        private void handleInputData(String inputData) {
+            Log.d("BT_handleInputData", "Parsing input into arr\n\n");
+
+            if(inputData!= null && inputData.length()>0){
+                //Split rows of inputData
+                String[] inputDataRows = inputData.split("\n");
+
+                //For each row, put values into data-store
+                for(int i = 0; i<inputDataRows.length; i++){
+                    String[] row = inputDataRows[i].split(",");
+                    if(row.length>=7 && row[0].equals("h")){
+                        dataStore.putVals(row[1],row[2],row[3],row[4],row[5],row[6]);
+                    }
+
+                }
+
+
             }
         }
 
