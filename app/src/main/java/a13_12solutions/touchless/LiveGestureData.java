@@ -16,7 +16,7 @@ public class LiveGestureData {
     private ArrayList<String> gxRate= new ArrayList<>();
     private ArrayList<String> gyRate = new ArrayList<>();
 
-    private static final String TAG="DATA_STORE";
+    private static final String TAG="BT_DATA_STORE";
 
     public void putVals(String gxAccel, String gyAccel, String gzAccel, String gvRef, String gxRate, String gyRate){
         this.gxAccel.add(gxAccel);
