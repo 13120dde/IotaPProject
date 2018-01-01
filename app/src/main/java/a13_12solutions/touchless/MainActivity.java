@@ -4,7 +4,6 @@ import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothSocket;
 import android.content.Intent;
-import android.content.res.AssetFileDescriptor;
 import android.content.res.AssetManager;
 import android.os.Handler;
 import android.os.Message;
@@ -12,16 +11,9 @@ import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.util.Log;
 
-import java.io.BufferedReader;
-import java.io.BufferedWriter;
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.FileReader;
-import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.nio.Buffer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -35,60 +27,64 @@ import weka.core.Instance;
 import weka.core.Instances;
 import weka.core.converters.ConverterUtils.DataSource;
 
-
-/**TODO: Add Weka lib
- * setup the Weka obj with train and test data
- * when getting wearable inputdata classify it trgough weka -> produce label
- *      send label to cloudmqqt
+/**Android app that reads gyroscope data received by a wearable sensor and classifies the data based
+ * on Weka's J48 classifier.
+ * The app builds a decision tree from a preprocessed data set which is used to classify the sensor
+ * output. Once classified, the app communicates the result with cloud MQTT.
+ *
+ * Created by: Patrik Lind, 2018-01-01
  *
  */
-
 public class MainActivity extends AppCompatActivity {
 
-    private static final String TAG="BT_connect";
-    private static final boolean DEBUG = true;
-    private static final String SENSITIVITY ="s24000";
-    private static final String[] LABELS = {"up","left","down","right","tilt_left","tilt_right"};
 
+    private final boolean DEBUG = true;
+    private final String TAG="BT_MainActivity",
+        SENSITIVITY ="s44000", WINDOW = "w30", FREQUENCY ="f30";
+    private final String[] LABELS = {"up","left","down","right","tilt_left","tilt_right"};
+
+    //Bluetooth variables
     private BluetoothAdapter mBluetoothAdapter;
     private Set<BluetoothDevice> pairedDevices;
     private BluetoothDevice mDevice;
     private ConnectThread mConnectThread;
-
     private ConnectedThread mConnectedThread;
 
+    //Variables for storing sensor-data before parsing/preprocessing/classifying.
+    private final int NBR_OF_VALS = 120;
+    private List<Double> sensorVals = new ArrayList<Double>();
 
-    //Weka related variables
-    private LiveGestureData dataStore = new LiveGestureData();
     private J48 tree;
-    private Instances train, test;
-
-    //Can probably remove Handler
     private Handler mHandler = new Handler() {
         @Override
         public void handleMessage(Message msg) {
-            Log.d(TAG,"handleMessage:"+"OKFSEOKKO");
-
-         /*   byte[] writeBuf = (byte[]) msg.obj;
+            byte[] writeBuf = (byte[]) msg.obj;
             int begin = (int)msg.arg1;
-            int end = (int)msg.arg2;*/
+            int end = (int)msg.arg2;
 
             switch(msg.what) {
                 case 1:
-                    String writeMessage = (String )msg.obj;
-                    //writeMessage = writeMessage.substring(begin, end);
-                    Log.d(TAG,"handleMessage:"+writeMessage);
+                    String writeMessage = new String(writeBuf);
+                    writeMessage = writeMessage.substring(begin, end);
+                    if(DEBUG)
+                        Log.d("BT_handleMsg", writeMessage);
+                    try {
+
+                        handleInputData(writeMessage);
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
                     break;
             }
         }
     };
-
+    
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         try {
-            setUpWeka();
+            buildClassifier();
             initBlueToothConnection();
         } catch (Exception e) {
             e.printStackTrace();
@@ -96,11 +92,26 @@ public class MainActivity extends AppCompatActivity {
 
     }
 
-    private void setUpWeka() throws Exception{
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        //if user enabled bt
+        if(resultCode == RESULT_OK){
+            startConnection();
+        }
+
+    }
+    
+    /**Builds a decision tree based on the training set (.arff file) in assets folder. The tree is 
+     * a unpruned decision tree where C4.5 is used as attribute selection method.
+     *
+     * @throws Exception
+     */
+    private void buildClassifier() throws Exception{
         AssetManager assetManager = getAssets();
         InputStream fr = assetManager.open("testdata.arff");
         DataSource source = new DataSource(fr);
-        train = source.getDataSet();
+        Instances train = source.getDataSet();
         // setting class attribute if the data format does not provide this information
         // For example, the XRFF format saves the class attribute information as well
         if (train.classIndex() == -1)
@@ -111,13 +122,14 @@ public class MainActivity extends AppCompatActivity {
         tree = new J48();         // new instance of tree
         tree.setOptions(options);     // set the options
         tree.buildClassifier(train);   // build classifier
-        if(DEBUG){
-            Log.d(TAG, "WEKA TREE BUILT!");
+        if(DEBUG)
             Log.d(TAG, tree.toString());
 
-        }
     }
 
+    /**Checks if the device has bluetooth and if it's paired with any BT devices.
+     * 
+     */
     private void initBlueToothConnection() {
         mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
 
@@ -133,42 +145,30 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        //if user enabled bt
-        if(resultCode == RESULT_OK){
-            startConnection();
-        }
 
-    }
-
-    /**Starts the connection with paired bluetooth device
+    /**Starts the connection with paired bluetooth device and starts a new thread that handles the 
+     * connection.
+     * 
+     * CAUTION: This method works only when there is exactly 1 paired device. To prevent errors, 
+     * unpair all other BT devices on the phone.
      *
      */
     private void startConnection() {
         if(DEBUG)
             Log.d(TAG,"in startConnection");
-        
+
         pairedDevices = mBluetoothAdapter.getBondedDevices();
         if(pairedDevices.size()>0){
-            if(DEBUG)
-                Log.d(TAG, "paired device found");
 
             for(BluetoothDevice device : pairedDevices){
                 mDevice = device;
-                if(DEBUG)
-                    Log.d(TAG, "got paired device: "+mDevice.toString());
-
             }
         }
 
         mConnectThread = new ConnectThread(mDevice);
         mConnectThread.start();
     }
-
-
-
+    
     private class ConnectThread extends Thread {
         private BluetoothSocket mmSocket;
         private final BluetoothDevice mmDevice;
@@ -195,20 +195,17 @@ public class MainActivity extends AppCompatActivity {
                 mmSocket.connect();
                 if(DEBUG)
                     Log.d(TAG, "connected to bt-device");
-                
+
                 mConnectedThread = new ConnectedThread(mmSocket);
                 mConnectedThread.start();
 
 
             } catch (IOException connectException) {
-                if(DEBUG)
-                    Log.d(TAG, "ERROR in connect: "+connectException.getMessage());
-
+                connectException.printStackTrace();
                 try {
                     mmSocket.close();
                 } catch (IOException closeException) {
-                    if(DEBUG)
-                        Log.d(TAG, "ERROR in close"+closeException.getMessage());
+                    closeException.printStackTrace();
 
                 }
                 return;
@@ -224,6 +221,9 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    /**This class is responsible for reading/writing sensor data from the connected BT device.
+     * 
+     */
     private class ConnectedThread extends Thread {
         private final BluetoothSocket mmSocket;
         private final InputStream mmInStream;
@@ -246,9 +246,9 @@ public class MainActivity extends AppCompatActivity {
             mmOutStream = tmpOut;
             try {
                 //Adjust sensitivity of gyro.
-                //mmOutStream.write(SENSITIVITY.getBytes());
-               // mmOutStream.write("w30".getBytes());
-              //  mmOutStream.write("f20".getBytes());
+                mmOutStream.write(SENSITIVITY.getBytes());
+                mmOutStream.write(WINDOW.getBytes());
+                mmOutStream.write(FREQUENCY.getBytes());
                 mmOutStream.flush();
             } catch (IOException e) {
                 e.printStackTrace();
@@ -264,16 +264,10 @@ public class MainActivity extends AppCompatActivity {
                     bytes += mmInStream.read(buffer, bytes, buffer.length - bytes);
                     for (int i = begin; i < bytes; i++) {
                         String inputData = new String(buffer);
-                        Log.d("BT_BUFFER", "recieved  inputData, bynteNbr: "+i);
-                        /*if(inputData!= null && inputData.length()>0){
-                            double[] vals = handleInputData(inputData);
-
-                            classifyTuple(vals);
-
-                        }*/
-                        if (buffer[i] == "#".getBytes()[0]) {
-                            Log.d("BT_BUFFER", "######");
-
+                        if(DEBUG)
+                            Log.d("BT_BUFFER", "received  inputData, bynteNbr: "+i);
+                        
+                        if (buffer[i] == "h".getBytes()[0]) {
                             mHandler.obtainMessage(1, begin, i, buffer).sendToTarget();
                             begin = i + 1;
                             if (i == bytes - 1) {
@@ -285,50 +279,13 @@ public class MainActivity extends AppCompatActivity {
 
 
                 } catch (IOException e) {
-                    Log.d(TAG,"readbuffer: "+e.getMessage());
+                    e.printStackTrace();
                     break;
                 } catch (Exception e) {
                     e.printStackTrace();
                     break;
                 }
             }
-        }
-
-        private double[] handleInputData(String inputData) {
-            Log.d("BT_handleInputData", "Parsing input into arr\n\n");
-            double[] vals = new double[120];
-
-            if(inputData!= null && inputData.length()>0){
-                //Split rows of inputData
-                String[] inputDataRows = inputData.split("\n");
-
-                //Limit to 30 tuples
-                int length;
-                if(inputDataRows.length>20){
-                    length=20;
-                }else{
-                    length = inputDataRows.length;
-                }
-                int valsIndex = 0;
-                Log.d("BT_handleInputData","inputData: "+inputData);
-                for(int i = 0; i<length; i++){
-                    String[] row = inputDataRows[i].split(",");
-                    if(row.length>=7 && row[0].equals("h")){
-
-                        for(int j = 1; j<row.length;j++){
-                            if(row[j]!=null){
-                                vals[valsIndex] = Double.parseDouble(row[j]);
-                                valsIndex++;
-                            }
-                        }
-
-                    }
-                }
-
-
-
-            }
-            return vals;
         }
 
         public void write(byte[] bytes) {
@@ -346,24 +303,44 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    //Throws exception b/c Instance is not compatible with testdata.arff
-    private void classifyTuple(double[] blueToothData) throws Exception {
-        //Parse values to match the .arff file's attributes
-       /* double gxAcc = Double.parseDouble(gxAccel);
-        double gyAcc = Double.parseDouble(gyAccel);
-        double gzAcc = Double.parseDouble(gzAccel);
-        double gvRe = Double.parseDouble(gvRef);
-        double gxRat = Double.parseDouble(gxRate);
-        double gyRat = Double.parseDouble(gyRate);*/
+    /**Parses the string into double and adds the values to the arrayList. One the arrayList has 
+     * enough of values (NBR_OF_VALS) the values in arrayList will be sent to classifyTuple(...) and
+     * the list will be cleared in preparation for storing the next set of data.
+     * 
+     * @param inputData : String
+     * @throws Exception
+     */
+    private void handleInputData(String inputData) throws Exception {
 
-        //Declaring attributes
-        /*
-        Attribute AccX = new Attribute("AccX");
-        Attribute AccY = new Attribute("AccY");
-        Attribute AccZ = new Attribute("AccZ");
-        Attribute GyrX = new Attribute("GyrX");
-        Attribute GyrY = new Attribute("GyrY");
-        Attribute GyrZ = new Attribute("GyrZ");*/
+        Log.d("BT_handleInputData", "input: "+inputData+" - nbr:"+sensorVals.size());
+
+        String []input = inputData.substring(1, inputData.length()-1).split(",");
+        for(int i = 0 ; i<input.length; i++){
+            sensorVals.add(Double.parseDouble(input[i]));
+        }
+
+        if(sensorVals.size()>=NBR_OF_VALS){
+            double[] vals = new double[NBR_OF_VALS];
+            for(int i =0; i< NBR_OF_VALS; i++){
+                vals[i]=sensorVals.get(i);
+                Log.d("BT_handleInputdata", ""+vals[i]);
+
+            }
+            sensorVals.clear();
+            //TODO: preprocess the data before classifying
+            classifyTuple(vals);
+        }
+
+    }
+
+    /**Creates a data set from the provided argument and classifies the dataset. The resulting 
+     * classifier will in turn be sent to the cloudMQTT. 
+     * 
+     * @param blueToothData : double[]
+     * @throws Exception
+     */
+    private void classifyTuple(double[] blueToothData) throws Exception {
+
         List<Attribute> attributes = new ArrayList<>();
 
         for(int i = 1; i <=20; i++){
@@ -377,23 +354,17 @@ public class MainActivity extends AppCompatActivity {
 
         //Declaring the class attribute and add labels
         FastVector fvClassVal = new FastVector(6);
-        fvClassVal.addElement("up");
-        fvClassVal.addElement("left");
-        fvClassVal.addElement("down");
-        fvClassVal.addElement("right");
-        fvClassVal.addElement("tilt_left");
-        fvClassVal.addElement("tilt_right");
+
+
+        for (int i = 0; i<LABELS.length; i++){
+            fvClassVal.addElement(LABELS[i]);
+        }
+
         Attribute classLables = new Attribute("Label", fvClassVal);
 
         //Declaring feature vector and add attributes
         FastVector fvWekaAttributes = new FastVector(attributes.size()+1);
-      /*  fvWekaAttributes.addElement(AccX);
-        fvWekaAttributes.addElement(AccY);
-        fvWekaAttributes.addElement(AccZ);
-        fvWekaAttributes.addElement(GyrX);
-        fvWekaAttributes.addElement(GyrY);
-        fvWekaAttributes.addElement(GyrZ);
-        fvWekaAttributes.addElement(classLables);*/
+
         for(int i = 0; i < attributes.size(); i++){
             fvWekaAttributes.addElement(attributes.get(i));
         }
@@ -407,8 +378,12 @@ public class MainActivity extends AppCompatActivity {
         dataset.add(tuple);
         dataset.setClassIndex(dataset.numAttributes()-1);
         int category = (int) tree.classifyInstance(dataset.instance(0));
-        System.out.println(LABELS[category]);
+        Log.d("BT_classifyTuple",LABELS[category]);
+        sendToMQTT(LABELS[category]);
 
+    }
+
+    private void sendToMQTT(String s) {
     }
 
 
