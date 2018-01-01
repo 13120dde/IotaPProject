@@ -11,6 +11,8 @@ import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.util.Log;
 
+import org.eclipse.paho.android.service.MqttAndroidClient;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -30,7 +32,7 @@ import weka.core.converters.ConverterUtils.DataSource;
 /**Android app that reads gyroscope data received by a wearable sensor and classifies the data based
  * on Weka's J48 classifier.
  * The app builds a decision tree from a preprocessed data set which is used to classify the sensor
- * output. Once classified, the app communicates the result with cloud MQTT.
+ * input. Once classified, the app communicates the result with cloudMQTT.com.
  *
  * Created by: Patrik Lind, 2018-01-01
  *
@@ -49,6 +51,10 @@ public class MainActivity extends AppCompatActivity {
     private BluetoothDevice mDevice;
     private ConnectThread mConnectThread;
     private ConnectedThread mConnectedThread;
+
+    //MQTT variables
+    private MqttAndroidClient client;
+    private PahoMqttClient pahoMqttClient;
 
     //Variables for storing sensor-data before parsing/preprocessing/classifying.
     private final int NBR_OF_VALS = 120;
@@ -83,6 +89,10 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+
+        pahoMqttClient = new PahoMqttClient();
+        client = pahoMqttClient.getMqttClient(getApplicationContext(), Constants.MQTT_BROKER_URL, Constants.CLIENT_ID);
+
         try {
             buildClassifier();
             initBlueToothConnection();
@@ -263,7 +273,6 @@ public class MainActivity extends AppCompatActivity {
                 try {
                     bytes += mmInStream.read(buffer, bytes, buffer.length - bytes);
                     for (int i = begin; i < bytes; i++) {
-                        String inputData = new String(buffer);
                         if(DEBUG)
                             Log.d("BT_BUFFER", "received  inputData, bynteNbr: "+i);
                         
@@ -379,12 +388,10 @@ public class MainActivity extends AppCompatActivity {
         dataset.setClassIndex(dataset.numAttributes()-1);
         int category = (int) tree.classifyInstance(dataset.instance(0));
         Log.d("BT_classifyTuple",LABELS[category]);
-        sendToMQTT(LABELS[category]);
+        pahoMqttClient.publishMessage(client, LABELS[category], 1, Constants.PUBLISH_TOPIC);
 
     }
 
-    private void sendToMQTT(String s) {
-    }
 
 
 }
