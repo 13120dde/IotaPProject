@@ -5,10 +5,10 @@ import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothSocket;
 import android.content.Intent;
 import android.content.res.AssetManager;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
 import android.support.v7.app.AppCompatActivity;
-import android.os.Bundle;
 import android.util.Log;
 
 import org.eclipse.paho.android.service.MqttAndroidClient;
@@ -337,8 +337,125 @@ public class MainActivity extends AppCompatActivity {
             }
             sensorVals.clear();
             //TODO: preprocess the data before classifying
+            slidingWindow(vals);
+            minMax(vals);
             classifyTuple(vals);
         }
+
+    }
+
+    private void slidingWindow(double[] vals) {
+
+        /* 1. Smooth out data with 'Moving average' where sliding window = 5 */
+        double[] slidingWindow = new double[5];
+        for(int i =0; i<vals.length;i++){
+
+            slidingWindow[0] = vals[i];
+            if(i<6){
+                slidingWindow[1] = vals[NBR_OF_VALS+i-12];
+                slidingWindow[2] = vals[NBR_OF_VALS+i-6];
+                slidingWindow[3] = vals[i+6];
+                slidingWindow[4] = vals[i+12];
+            }
+            else if(i<12 && i>=6){
+                slidingWindow[1] = vals[NBR_OF_VALS+i-12];
+                slidingWindow[2] = vals[i-6];
+                slidingWindow[3] = vals[i+6];
+                slidingWindow[4] = vals[i+12];
+            }
+            else if(i>=12 && i<NBR_OF_VALS-12){
+                slidingWindow[1] = vals[i-12];
+                slidingWindow[2] = vals[i-6];
+                slidingWindow[3] = vals[i+6];
+                slidingWindow[4] = vals[i+12];
+
+            }
+            else if(i>=12 && i<NBR_OF_VALS-6){
+                slidingWindow[1] = vals[i-12];
+                slidingWindow[2] = vals[i-6];
+                slidingWindow[3] = vals[i+6];
+                slidingWindow[4] = vals[((i+12)-NBR_OF_VALS)];
+
+            }
+            else{
+                slidingWindow[1] = vals[i-12];
+                slidingWindow[2] = vals[i-6];
+                slidingWindow[3] = vals[((i+6)-NBR_OF_VALS)];
+                slidingWindow[4] = vals[((i+12)-NBR_OF_VALS)];
+
+            }
+            double sum=0;
+            for(int j = 0;j<slidingWindow.length;j++){
+                sum+=slidingWindow[j];
+            }
+            vals[i] = sum / slidingWindow.length;
+
+        }
+    }
+
+    private void minMax(double[] vals){
+
+        double newMax = 500, newMin=0;
+        double[] oldMin = {Double.MAX_VALUE,Double.MAX_VALUE,Double.MAX_VALUE,Double.MAX_VALUE,Double.MAX_VALUE,Double.MAX_VALUE},
+                oldMax = {Double.MIN_VALUE,Double.MIN_VALUE,Double.MIN_VALUE,Double.MIN_VALUE,Double.MIN_VALUE,Double.MIN_VALUE};
+
+        //1. Find old min/max for each category
+        for(int i= 0; i<=NBR_OF_VALS-6;i+=6){
+
+            //Check AccX
+            if(vals[i]<oldMin[0]){
+                oldMin[0]=vals[i];
+            }
+            if(vals[i]>oldMax[0]){
+                oldMax[0] = vals[i];
+            }
+
+            //Check AccY
+            if(vals[i+1]<oldMin[1]){
+                oldMin[1]=vals[i+1];
+            }
+            if(vals[i+1]>oldMax[0]){
+                oldMax[1] = vals[i+1];
+            }
+
+            //Check AccZ
+            if(vals[i+2]<oldMin[2]){
+                oldMin[2]=vals[i+2];
+            }
+            if(vals[i+2]>oldMax[2]){
+                oldMax[2] = vals[i+2];
+            }
+
+            //Check GyrX
+            if(vals[i+3]<oldMin[3]){
+                oldMin[3]=vals[i+3];
+            }
+            if(vals[i+3]>oldMax[3]){
+                oldMax[3] = vals[i+3];
+            }
+
+            //Check GyrY
+            if(vals[i+4]<oldMin[4]){
+                oldMin[4]=vals[i+4];
+            }
+            if(vals[i+4]>oldMax[4]){
+                oldMax[4] = vals[i+4];
+            }
+
+            //Check GyrZ
+            if(vals[i+5]<oldMin[5]){
+                oldMin[5]=vals[i+5];
+            }
+            if(vals[i+5]>oldMax[5]){
+                oldMax[5] = vals[i+5];
+            }
+        }
+
+        //2. Apply MinMax on each data point in arr.
+        for(int i =0; i<vals.length;i++){
+
+        }
+
 
     }
 
