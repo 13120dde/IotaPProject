@@ -42,7 +42,7 @@ public class MainActivity extends AppCompatActivity {
 
     private final boolean DEBUG = true;
     private final String TAG="BT_MainActivity",
-        SENSITIVITY ="s44000", WINDOW = "w30", FREQUENCY ="f30";
+        SENSITIVITY ="s24000", WINDOW = "w20", FREQUENCY ="f60";
     private final String[] LABELS = {"up","left","down","right","tilt_left","tilt_right"};
 
     //Bluetooth variables
@@ -119,8 +119,8 @@ public class MainActivity extends AppCompatActivity {
      */
     private void buildClassifier() throws Exception{
         AssetManager assetManager = getAssets();
-        InputStream fr = assetManager.open("testdata.arff");
-        DataSource source = new DataSource(fr);
+        InputStream is = assetManager.open("train_data3.arff");
+        DataSource source = new DataSource(is);
         Instances train = source.getDataSet();
         // setting class attribute if the data format does not provide this information
         // For example, the XRFF format saves the class attribute information as well
@@ -336,7 +336,7 @@ public class MainActivity extends AppCompatActivity {
 
             }
             sensorVals.clear();
-            //TODO: preprocess the data before classifying
+            //Preprocessing BT-data actually lowers the accuracy
             slidingWindow(vals);
             minMax(vals);
             classifyTuple(vals);
@@ -395,7 +395,8 @@ public class MainActivity extends AppCompatActivity {
 
     private void minMax(double[] vals){
 
-        double newMax = 500, newMin=0;
+        double newMax = 500, newMin=-500;
+
         double[] oldMin = {Double.MAX_VALUE,Double.MAX_VALUE,Double.MAX_VALUE,Double.MAX_VALUE,Double.MAX_VALUE,Double.MAX_VALUE},
                 oldMax = {Double.MIN_VALUE,Double.MIN_VALUE,Double.MIN_VALUE,Double.MIN_VALUE,Double.MIN_VALUE,Double.MIN_VALUE};
 
@@ -451,8 +452,22 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
-        //2. Apply MinMax on each data point in arr.
+        int indexToOldMinMaxVals = 0;
+
+        //2. Normalize each data point in arr.
         for(int i =0; i<vals.length;i++){
+
+
+            if(indexToOldMinMaxVals % 6 ==0){
+                indexToOldMinMaxVals =0;
+            }
+
+            Log.d("BT_MinMax", "old val: "+vals[i]+"\noldMin: "+oldMin[indexToOldMinMaxVals]+"\noldMax: "+oldMax[indexToOldMinMaxVals]);
+            vals[i] = ((vals[i]-oldMin[indexToOldMinMaxVals ])
+                    /(oldMax[indexToOldMinMaxVals]-oldMin[indexToOldMinMaxVals]))*(newMax-newMin)+newMin;
+
+            indexToOldMinMaxVals++;
+            Log.d("BT_MinMax", "new val: "+vals[i]);
 
         }
 
