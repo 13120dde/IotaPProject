@@ -3,13 +3,17 @@ package a13_12solutions.touchless;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothSocket;
+import android.content.Context;
 import android.content.Intent;
 import android.content.res.AssetManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
 import android.support.v7.app.AppCompatActivity;
+import android.util.AttributeSet;
 import android.util.Log;
+import android.view.View;
+import android.widget.TextView;
 
 import org.eclipse.paho.android.service.MqttAndroidClient;
 
@@ -21,6 +25,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
+import weka.classifiers.bayes.NaiveBayes;
 import weka.classifiers.trees.J48;
 import weka.core.Attribute;
 import weka.core.DenseInstance;
@@ -41,26 +46,30 @@ public class MainActivity extends AppCompatActivity {
 
 
     private final boolean DEBUG = true;
+    private final int NBR_OF_VALS = 180;
+    private final int NBR_OF_DATA  = 30;
     private final String TAG="BT_MainActivity",
-        SENSITIVITY ="s24000", WINDOW = "w20", FREQUENCY ="f60";
-    private final String[] LABELS = {"up","left","down","right","tilt_left","tilt_right"};
+    SENSITIVITY ="s10000", WINDOW = "w30", FREQUENCY ="f30";
 
+    private final String[] LABELS = {"up","left","down","right","tilt_left","tilt_right"};
     //Bluetooth variables
     private BluetoothAdapter mBluetoothAdapter;
     private Set<BluetoothDevice> pairedDevices;
     private BluetoothDevice mDevice;
     private ConnectThread mConnectThread;
-    private ConnectedThread mConnectedThread;
 
+    private ConnectedThread mConnectedThread;
     //MQTT variables
     private MqttAndroidClient client;
-    private PahoMqttClient pahoMqttClient;
 
-    //Variables for storing sensor-data before parsing/preprocessing/classifying.
-    private final int NBR_OF_VALS = 120;
+    private PahoMqttClient pahoMqttClient;
     private List<Double> sensorVals = new ArrayList<Double>();
 
+    //UI components
+    private TextView tvLabel;
+
     private J48 tree;
+    private NaiveBayes tree2;
     private Handler mHandler = new Handler() {
         @Override
         public void handleMessage(Message msg) {
@@ -102,6 +111,15 @@ public class MainActivity extends AppCompatActivity {
 
     }
 
+  /*  @Override
+    public View onCreateView(View parent, String name, Context context, AttributeSet attrs) {
+        tvLabel = (TextView) parent.findViewById(R.id.tvLabels);
+
+        return super.onCreateView(parent, name, context, attrs);
+
+    }*
+
+
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
@@ -119,7 +137,7 @@ public class MainActivity extends AppCompatActivity {
      */
     private void buildClassifier() throws Exception{
         AssetManager assetManager = getAssets();
-        InputStream is = assetManager.open("train_data3.arff");
+        InputStream is = assetManager.open("train_data_new.arff");
         DataSource source = new DataSource(is);
         Instances train = source.getDataSet();
         // setting class attribute if the data format does not provide this information
@@ -337,8 +355,8 @@ public class MainActivity extends AppCompatActivity {
             }
             sensorVals.clear();
             //Preprocessing BT-data actually lowers the accuracy
-            slidingWindow(vals);
-            minMax(vals);
+           // slidingWindow(vals);
+           // minMax(vals);
             classifyTuple(vals);
         }
 
@@ -395,7 +413,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void minMax(double[] vals){
 
-        double newMax = 500, newMin=-500;
+        double newMax = 100, newMin=-100;
 
         double[] oldMin = {Double.MAX_VALUE,Double.MAX_VALUE,Double.MAX_VALUE,Double.MAX_VALUE,Double.MAX_VALUE,Double.MAX_VALUE},
                 oldMax = {Double.MIN_VALUE,Double.MIN_VALUE,Double.MIN_VALUE,Double.MIN_VALUE,Double.MIN_VALUE,Double.MIN_VALUE};
@@ -484,7 +502,7 @@ public class MainActivity extends AppCompatActivity {
 
         List<Attribute> attributes = new ArrayList<>();
 
-        for(int i = 1; i <=20; i++){
+        for(int i = 1; i <=NBR_OF_DATA; i++){
             attributes.add(new Attribute("AccX"+i));
             attributes.add(new Attribute("AccY"+i));
             attributes.add(new Attribute("AccZ"+i));
@@ -518,8 +536,18 @@ public class MainActivity extends AppCompatActivity {
         Instance tuple = new DenseInstance(1.0,blueToothData);
         dataset.add(tuple);
         dataset.setClassIndex(dataset.numAttributes()-1);
-        int category = (int) tree.classifyInstance(dataset.instance(0));
+        final int category = (int) tree.classifyInstance(dataset.instance(0));
+
         Log.d("BT_classifyTuple",LABELS[category]);
+       /* if(tvLabel!=null){
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    tvLabel.setText(LABELS[category]);
+
+                }
+            });
+        }*/
         pahoMqttClient.publishMessage(client, LABELS[category], 1, Constants.PUBLISH_TOPIC);
 
     }
