@@ -3,16 +3,13 @@ package a13_12solutions.touchless;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothSocket;
-import android.content.Context;
 import android.content.Intent;
 import android.content.res.AssetManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
 import android.support.v7.app.AppCompatActivity;
-import android.util.AttributeSet;
 import android.util.Log;
-import android.view.View;
 import android.widget.TextView;
 
 import org.eclipse.paho.android.service.MqttAndroidClient;
@@ -25,17 +22,15 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
-import weka.classifiers.bayes.NaiveBayes;
+import weka.classifiers.functions.MultilayerPerceptron;
 import weka.classifiers.trees.J48;
 import weka.core.Attribute;
 import weka.core.DenseInstance;
-import weka.core.FastVector;
-import weka.core.Instance;
 import weka.core.Instances;
 import weka.core.converters.ConverterUtils.DataSource;
 
-/**Android app that reads gyroscope data received by a wearable sensor and classifies the data based
- * on Weka's J48 classifier.
+/**Android app that reads gyroscope data received by a wearable and classifies the data based
+ * on Weka's MultilayerPerceptron classifier.
  * The app builds a decision tree from a preprocessed data set which is used to classify the sensor
  * input. Once classified, the app communicates the result with cloudMQTT.com.
  *
@@ -47,11 +42,11 @@ public class MainActivity extends AppCompatActivity {
 
     private final boolean DEBUG = true;
     private final int NBR_OF_VALS = 180;
-    private final int NBR_OF_DATA  = 30;
+    private final int NBR_OF_ATTRIBUTES = 30;
+
     private final String TAG="BT_MainActivity",
     SENSITIVITY ="s10000", WINDOW = "w30", FREQUENCY ="f30";
 
-    private final String[] LABELS = {"up","left","down","right","tilt_left","tilt_right"};
     //Bluetooth variables
     private BluetoothAdapter mBluetoothAdapter;
     private Set<BluetoothDevice> pairedDevices;
@@ -65,11 +60,13 @@ public class MainActivity extends AppCompatActivity {
     private PahoMqttClient pahoMqttClient;
     private List<Double> sensorVals = new ArrayList<Double>();
 
-    //UI components
-    private TextView tvLabel;
+    //Weka variables
+   // private J48 tree;
+    private Instances train;
+    private MultilayerPerceptron tree;
 
-    private J48 tree;
-    private NaiveBayes tree2;
+    private int msgNbr = 0 ;
+
     private Handler mHandler = new Handler() {
         @Override
         public void handleMessage(Message msg) {
@@ -77,12 +74,14 @@ public class MainActivity extends AppCompatActivity {
             int begin = (int)msg.arg1;
             int end = (int)msg.arg2;
 
+            msgNbr++;
+
             switch(msg.what) {
                 case 1:
                     String writeMessage = new String(writeBuf);
                     writeMessage = writeMessage.substring(begin, end);
                     if(DEBUG)
-                        Log.d("BT_handleMsg", writeMessage);
+                        Log.d("BT_hm", writeMessage+" : MsgNbr: "+msgNbr);
                     try {
 
                         handleInputData(writeMessage);
@@ -111,15 +110,6 @@ public class MainActivity extends AppCompatActivity {
 
     }
 
-  /*  @Override
-    public View onCreateView(View parent, String name, Context context, AttributeSet attrs) {
-        tvLabel = (TextView) parent.findViewById(R.id.tvLabels);
-
-        return super.onCreateView(parent, name, context, attrs);
-
-    }*
-
-
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
@@ -139,17 +129,29 @@ public class MainActivity extends AppCompatActivity {
         AssetManager assetManager = getAssets();
         InputStream is = assetManager.open("train_data_new.arff");
         DataSource source = new DataSource(is);
-        Instances train = source.getDataSet();
+        train = source.getDataSet();
         // setting class attribute if the data format does not provide this information
         // For example, the XRFF format saves the class attribute information as well
         if (train.classIndex() == -1)
             train.setClassIndex(train.numAttributes() - 1);
         // setting class attribute
-        String[] options = new String[1];
+  /*      String[] options = new String[1];
+
+        //J48
         options[0] = "-U";            // unpruned tree
         tree = new J48();         // new instance of tree
         tree.setOptions(options);     // set the options
         tree.buildClassifier(train);   // build classifier
+*/
+        //MLB
+        tree = new MultilayerPerceptron();
+        //Setting Parameters
+        tree.setLearningRate(0.1);
+        tree.setMomentum(0.2);
+        tree.setTrainingTime(2000);
+        tree.setHiddenLayers("3");
+        tree.buildClassifier(train);
+
         if(DEBUG)
             Log.d(TAG, tree.toString());
 
@@ -225,6 +227,9 @@ public class MainActivity extends AppCompatActivity {
                     Log.d(TAG, "connected to bt-device");
 
                 mConnectedThread = new ConnectedThread(mmSocket);
+                mConnectedThread.write(SENSITIVITY.getBytes());
+                mConnectedThread.write(WINDOW.getBytes());
+                mConnectedThread.write(FREQUENCY.getBytes());
                 mConnectedThread.start();
 
 
@@ -272,15 +277,7 @@ public class MainActivity extends AppCompatActivity {
             }
             mmInStream = tmpIn;
             mmOutStream = tmpOut;
-            try {
-                //Adjust sensitivity of gyro.
-                mmOutStream.write(SENSITIVITY.getBytes());
-                mmOutStream.write(WINDOW.getBytes());
-                mmOutStream.write(FREQUENCY.getBytes());
-                mmOutStream.flush();
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
+
         }
 
         public void run() {
@@ -318,6 +315,7 @@ public class MainActivity extends AppCompatActivity {
         public void write(byte[] bytes) {
             try {
                 mmOutStream.write(bytes);
+                mmOutStream.flush();
             } catch (IOException e) {
             }
         }
@@ -339,24 +337,33 @@ public class MainActivity extends AppCompatActivity {
      */
     private void handleInputData(String inputData) throws Exception {
 
-        Log.d("BT_handleInputData", "input: "+inputData+" - nbr:"+sensorVals.size());
 
-        String []input = inputData.substring(1, inputData.length()-1).split(",");
+
+        String []input = {"0","0","0","0","0","0"};
+
+        if(inputData.contains(",")){
+            input = inputData.substring(1, inputData.length()-1).split(",");
+        }
+
+
         for(int i = 0 ; i<input.length; i++){
             sensorVals.add(Double.parseDouble(input[i]));
         }
 
+        Log.d("BT_hi", "input: "+input+" - nbr:"+sensorVals.size());
+
         if(sensorVals.size()>=NBR_OF_VALS){
             double[] vals = new double[NBR_OF_VALS];
             for(int i =0; i< NBR_OF_VALS; i++){
+
                 vals[i]=sensorVals.get(i);
-                Log.d("BT_handleInputdata", ""+vals[i]);
 
             }
             sensorVals.clear();
-            //Preprocessing BT-data actually lowers the accuracy
-           // slidingWindow(vals);
-           // minMax(vals);
+            msgNbr=0;
+            //Preprocessing BT-data actually lowers the accuracy for some reason
+           slidingWindow(vals);
+           minMax(vals);
             classifyTuple(vals);
         }
 
@@ -499,57 +506,47 @@ public class MainActivity extends AppCompatActivity {
      * @throws Exception
      */
     private void classifyTuple(double[] blueToothData) throws Exception {
-
-        List<Attribute> attributes = new ArrayList<>();
-
-        for(int i = 1; i <=NBR_OF_DATA; i++){
-            attributes.add(new Attribute("AccX"+i));
-            attributes.add(new Attribute("AccY"+i));
-            attributes.add(new Attribute("AccZ"+i));
-            attributes.add(new Attribute("GyrX"+i));
-            attributes.add(new Attribute("GyrY"+i));
-            attributes.add(new Attribute("GyrZ"+i));
+        DenseInstance instance= new DenseInstance(NBR_OF_VALS+1);
+        for(int i =0; i<blueToothData.length;i++){
+            instance.setValue(i,blueToothData[i]);
         }
 
-        //Declaring the class attribute and add labels
-        FastVector fvClassVal = new FastVector(6);
-
-
-        for (int i = 0; i<LABELS.length; i++){
-            fvClassVal.addElement(LABELS[i]);
+        ArrayList<Attribute> attributes = new ArrayList<>();
+        for (int i = 1; i <= NBR_OF_ATTRIBUTES; i++){
+            attributes.add(new Attribute("AccX" + i));
+            attributes.add(new Attribute("AccY" + i));
+            attributes.add(new Attribute("AccZ" + i));
+            attributes.add(new Attribute("GyrX" + i));
+            attributes.add(new Attribute("GyrY" + i));
+            attributes.add(new Attribute("GyrZ" + i));
         }
+        // pay attention to the order of the gestures that should match your training file
+        ArrayList<String> classValues = new ArrayList<>();
+        classValues.add("up");
+        classValues.add("left");
+        classValues.add("down");
+        classValues.add("right");
+        classValues.add("tilt_left");
+        classValues.add("tilt_right");
+        attributes.add(new Attribute("gesture", classValues));
 
-        Attribute classLables = new Attribute("Label", fvClassVal);
+        // now create the instances
+        Instances unlabeled = new Instances("testData",attributes,NBR_OF_VALS);
 
-        //Declaring feature vector and add attributes
-        FastVector fvWekaAttributes = new FastVector(attributes.size()+1);
+        // and here you should add your DenseInstance to the instances
+        unlabeled.setClassIndex(unlabeled.numAttributes() - 1);
 
-        for(int i = 0; i < attributes.size(); i++){
-            fvWekaAttributes.addElement(attributes.get(i));
-        }
-        fvWekaAttributes.addElement(classLables);
+        //	Instances unlabeled = new Instances(test);
+        unlabeled.add(instance);
+        double clsLabel = tree.classifyInstance(unlabeled.instance(0)) ;
+        unlabeled.instance(0).setClassValue(clsLabel);
+        int classIndex = train.numAttributes() -1;
+        String label = unlabeled.instance(0).attribute(classIndex).value((int) clsLabel);
+        Log.d("BT_cl","Detected Gesture: "+label);
 
+       pahoMqttClient.publishMessage(client, label, 1, Constants.PUBLISH_TOPIC);
 
-        Instances dataset = new Instances("BTTuple", fvWekaAttributes,0);
-
-
-        Instance tuple = new DenseInstance(1.0,blueToothData);
-        dataset.add(tuple);
-        dataset.setClassIndex(dataset.numAttributes()-1);
-        final int category = (int) tree.classifyInstance(dataset.instance(0));
-
-        Log.d("BT_classifyTuple",LABELS[category]);
-       /* if(tvLabel!=null){
-            runOnUiThread(new Runnable() {
-                @Override
-                public void run() {
-                    tvLabel.setText(LABELS[category]);
-
-                }
-            });
-        }*/
-        pahoMqttClient.publishMessage(client, LABELS[category], 1, Constants.PUBLISH_TOPIC);
-
+        //TODO publish message in other mqtt
     }
 
 
