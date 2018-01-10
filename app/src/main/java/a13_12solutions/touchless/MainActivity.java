@@ -10,7 +10,6 @@ import android.os.Handler;
 import android.os.Message;
 import android.support.v7.app.AppCompatActivity;
 import android.util.Log;
-import android.widget.TextView;
 
 import org.eclipse.paho.android.service.MqttAndroidClient;
 
@@ -23,7 +22,6 @@ import java.util.Set;
 import java.util.UUID;
 
 import weka.classifiers.functions.MultilayerPerceptron;
-import weka.classifiers.trees.J48;
 import weka.core.Attribute;
 import weka.core.DenseInstance;
 import weka.core.Instances;
@@ -34,7 +32,7 @@ import weka.core.converters.ConverterUtils.DataSource;
  * The app builds a decision tree from a preprocessed data set which is used to classify the sensor
  * input. Once classified, the app communicates the result with cloudMQTT.com.
  *
- * Created by: Patrik Lind, 2018-01-01
+ * Created by: Patrik Lind (Group 10), 2018-01-01 for IoTaP project.
  *
  */
 public class MainActivity extends AppCompatActivity {
@@ -99,7 +97,7 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
 
         pahoMqttClient = new PahoMqttClient();
-        client = pahoMqttClient.getMqttClient(getApplicationContext(), Constants.MQTT_BROKER_URL, Constants.CLIENT_ID);
+        client = pahoMqttClient.getMqttClient(getApplicationContext(), Constants.MQTT_BROKER_URL_GRP, Constants.CLIENT_ID);
 
         try {
             buildClassifier();
@@ -127,7 +125,7 @@ public class MainActivity extends AppCompatActivity {
      */
     private void buildClassifier() throws Exception{
         AssetManager assetManager = getAssets();
-        InputStream is = assetManager.open("train_data_new.arff");
+        InputStream is = assetManager.open("train_data_new_processed.arff");
         DataSource source = new DataSource(is);
         train = source.getDataSet();
         // setting class attribute if the data format does not provide this information
@@ -305,9 +303,6 @@ public class MainActivity extends AppCompatActivity {
                 } catch (IOException e) {
                     e.printStackTrace();
                     break;
-                } catch (Exception e) {
-                    e.printStackTrace();
-                    break;
                 }
             }
         }
@@ -339,12 +334,13 @@ public class MainActivity extends AppCompatActivity {
 
 
 
+        //For some reason, the first inputData of a gesture is always empty, replace by 0 to
+        //fullfill NBR_OF_VALS requirement to classify.
         String []input = {"0","0","0","0","0","0"};
 
         if(inputData.contains(",")){
             input = inputData.substring(1, inputData.length()-1).split(",");
         }
-
 
         for(int i = 0 ; i<input.length; i++){
             sensorVals.add(Double.parseDouble(input[i]));
@@ -361,15 +357,21 @@ public class MainActivity extends AppCompatActivity {
             }
             sensorVals.clear();
             msgNbr=0;
-            //Preprocessing BT-data actually lowers the accuracy for some reason
-           slidingWindow(vals);
-           minMax(vals);
+
+           //Preprocessing live data.
+            vals =  smoothingSlidingWindow(vals);
+            vals =  normalizeMinMax(vals);
             classifyTuple(vals);
         }
 
     }
 
-    private void slidingWindow(double[] vals) {
+    /**Smooth the data by applying new value at each element, the new value is a average of
+     * 5 values of each category.
+     *
+     * @param vals : double[]
+     */
+    private double[] smoothingSlidingWindow(double[] vals) {
 
         /* 1. Smooth out data with 'Moving average' where sliding window = 5 */
         double[] slidingWindow = new double[5];
@@ -416,9 +418,14 @@ public class MainActivity extends AppCompatActivity {
             vals[i] = sum / slidingWindow.length;
 
         }
+        return vals;
     }
 
-    private void minMax(double[] vals){
+    /**Normalize each element in array by applying newMin=-100 and newMax=100.
+     *
+     * @param vals : double[]
+     */
+    private double[] normalizeMinMax(double[] vals){
 
         double newMax = 100, newMin=-100;
 
@@ -496,11 +503,12 @@ public class MainActivity extends AppCompatActivity {
 
         }
 
+        return vals;
 
     }
 
-    /**Creates a data set from the provided argument and classifies the dataset. The resulting 
-     * classifier will in turn be sent to the cloudMQTT. 
+    /**Creates a data set from the provided argument and classifies with Multilayered Percepton. The
+     * resulting label is then sent to cloudMqqt.
      * 
      * @param blueToothData : double[]
      * @throws Exception
@@ -523,11 +531,11 @@ public class MainActivity extends AppCompatActivity {
         // pay attention to the order of the gestures that should match your training file
         ArrayList<String> classValues = new ArrayList<>();
         classValues.add("up");
-        classValues.add("left");
         classValues.add("down");
         classValues.add("right");
-        classValues.add("tilt_left");
+        classValues.add("left");
         classValues.add("tilt_right");
+        classValues.add("tilt_left");
         attributes.add(new Attribute("gesture", classValues));
 
         // now create the instances
@@ -546,7 +554,6 @@ public class MainActivity extends AppCompatActivity {
 
        pahoMqttClient.publishMessage(client, label, 1, Constants.PUBLISH_TOPIC);
 
-        //TODO publish message in other mqtt
     }
 
 
