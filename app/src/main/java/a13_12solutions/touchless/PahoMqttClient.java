@@ -14,8 +14,8 @@ import org.eclipse.paho.client.mqttv3.MqttMessage;
 
 import java.io.UnsupportedEncodingException;
 
-import static a13_12solutions.touchless.Constants.PASSWORD_GRP;
-import static a13_12solutions.touchless.Constants.USER_NAME_GRP;
+import static a13_12solutions.touchless.Constants.PASSWORD;
+import static a13_12solutions.touchless.Constants.USER_NAME;
 
 /**
  * Created by brijesh on 20/4/17.
@@ -81,8 +81,8 @@ public class PahoMqttClient {
         mqttConnectOptions.setCleanSession(false);
         mqttConnectOptions.setAutomaticReconnect(true);
         //mqttConnectOptions.setWill(Constants.PUBLISH_TOPIC, "I am going offline".getBytes(), 1, true);
-        mqttConnectOptions.setUserName(USER_NAME_GRP); //GROUPS 8 & 10
-        mqttConnectOptions.setPassword(PASSWORD_GRP.toCharArray()); ////GROUPS 8 & 10
+        mqttConnectOptions.setUserName(USER_NAME); //GROUPS 8 & 10
+        mqttConnectOptions.setPassword(PASSWORD.toCharArray()); ////GROUPS 8 & 10
         return mqttConnectOptions;
     }
 

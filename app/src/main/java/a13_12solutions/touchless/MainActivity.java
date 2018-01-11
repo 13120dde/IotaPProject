@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
+import weka.classifiers.Evaluation;
 import weka.classifiers.functions.MultilayerPerceptron;
 import weka.core.Attribute;
 import weka.core.DenseInstance;
@@ -97,7 +98,7 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
 
         pahoMqttClient = new PahoMqttClient();
-        client = pahoMqttClient.getMqttClient(getApplicationContext(), Constants.MQTT_BROKER_URL_GRP, Constants.CLIENT_ID);
+        client = pahoMqttClient.getMqttClient(getApplicationContext(), Constants.MQTT_BROKER_URL, Constants.CLIENT_ID);
 
         try {
             buildClassifier();
@@ -150,8 +151,13 @@ public class MainActivity extends AppCompatActivity {
         tree.setHiddenLayers("3");
         tree.buildClassifier(train);
 
-        if(DEBUG)
-            Log.d(TAG, tree.toString());
+        if(DEBUG){
+            Evaluation eval = new Evaluation(train);
+            eval.evaluateModel(tree, train);
+            Log.d("BT_build","error rate: "+eval.errorRate());
+            Log.d("BT_build","error rate: "+eval.toSummaryString());
+
+        }
 
     }
 

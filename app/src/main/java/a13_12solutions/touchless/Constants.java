@@ -6,11 +6,13 @@ package a13_12solutions.touchless;
 
 public class Constants {
 
+    //Strings for connecting to cloudMqtt
     public static final String MQTT_BROKER_URL = "tcp://m23.cloudmqtt.com:14381";
-    public static final String MQTT_BROKER_URL_GRP = "tcp://m14.cloudmqtt.com:17000";
-
     public static final String USER_NAME ="bjbvmjbc";
     public static final String PASSWORD="3ZSXthhxYYoW";
+
+    //Shared cloudMqtt strings
+    public static final String MQTT_BROKER_URL_GRP = "tcp://m14.cloudmqtt.com:17000";
     public static final String USER_NAME_GRP ="tkgnaxkd";
     public static final String PASSWORD_GRP ="beeJYOZ0G1yn";
 
